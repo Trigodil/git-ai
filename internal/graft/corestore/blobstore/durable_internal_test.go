@@ -70,6 +70,39 @@ func TestPutSyncsFileBeforeCommitAndSyncsDirectories(t *testing.T) {
 	require.Equal(t, content, data)
 }
 
+func TestPutSyncsOnlyTheDirectoriesWhoseEntriesAreNotDurable(t *testing.T) {
+	dir := t.TempDir()
+	var dirSyncs []string
+	s := openFileStoreForTest(t, dir, func(path string, isDir bool) error {
+		if isDir {
+			dirSyncs = append(dirSyncs, path)
+		}
+		return nil
+	})
+
+	put := func(repoID int64) {
+		dirSyncs = nil
+		content := []byte("pack content")
+		require.NoError(t, s.Put(testhelper.Context(t), corestore.NewPackKey(repoID, sha256.Sum256(content)), bytes.NewReader(content)))
+	}
+	repoDir := filepath.Join(dir, "repos", "1")
+	packsDir := filepath.Join(repoDir, "packs")
+
+	put(1)
+	require.Equal(t, []string{packsDir, repoDir, filepath.Join(dir, "repos"), dir}, dirSyncs)
+
+	put(1)
+	require.Equal(t, []string{packsDir}, dirSyncs)
+
+	put(2)
+	require.Equal(t, []string{filepath.Join(dir, "repos", "2", "packs"), filepath.Join(dir, "repos", "2"), filepath.Join(dir, "repos")}, dirSyncs)
+
+	// Moving the directory aside keeps its inode in use, so the new directory gets another one.
+	require.NoError(t, os.Rename(repoDir, filepath.Join(t.TempDir(), "old")))
+	put(1)
+	require.Equal(t, []string{packsDir, repoDir, filepath.Join(dir, "repos")}, dirSyncs)
+}
+
 func TestPutFailedFileSyncLeavesNoObject(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte("pack content whose sync fails")
