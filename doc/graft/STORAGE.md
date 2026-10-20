@@ -591,7 +591,9 @@ or re-import the repository from scratch (see
   them durable in a background step a second after a repository goes idle
   (`doc/graft/PLAN7.md`, LOCAL REFERENCE WRITES RULE). Until then the
   repository has a dirty marker in `<storage>/+gitaly/graft-ref-durability/`,
-  which holds the kernel's boot identity.
+  which holds the kernel's boot identity. The watermark of a dirty repository is
+  written without fsync too, and the background step makes it durable before it
+  removes the marker.
   - *Process crash or restart* (same kernel boot): nothing is lost, because the
     page cache kept every write. The restarted node settles the markers.
   - *Kernel crash or power loss*: the references written since the last durable

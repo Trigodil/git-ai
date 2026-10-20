@@ -405,11 +405,11 @@ func TestSettleReportsAFailedWriteAsUntrusted(t *testing.T) {
 	require.Equal(t, 0.0, testutil.ToFloat64(d.dirty))
 }
 
-func testWatermarkPath(repoPath string) string {
+func wmPath(repoPath string) string {
 	return filepath.Join(repoPath, "graft", "storage", "applied")
 }
 
-func TestDefersWatermark(t *testing.T) {
+func TestDefers(t *testing.T) {
 	t.Parallel()
 
 	t.Run("without the option", func(t *testing.T) {
@@ -418,59 +418,69 @@ func TestDefersWatermark(t *testing.T) {
 		d := f.durability(t, "boot-a", 0)
 
 		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
-		require.False(t, d.DefersWatermark(f.path))
+		require.False(t, d.CanDefer(f.path))
 	})
 
 	t.Run("while the repository is dirty", func(t *testing.T) {
 		t.Parallel()
 		f := setupDurability(t)
-		d := f.durability(t, "boot-a", 0, WithWatermark(testWatermarkPath))
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
 
-		require.False(t, d.DefersWatermark(f.path), "a clean repository")
+		require.False(t, d.CanDefer(f.path), "a clean repository")
 		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
-		require.True(t, d.DefersWatermark(f.path))
+		require.True(t, d.CanDefer(f.path))
 		require.NoError(t, d.Settle(f.path, false))
-		require.False(t, d.DefersWatermark(f.path), "the marker is gone")
+		require.False(t, d.CanDefer(f.path), "the marker is gone")
 	})
 
 	t.Run("an untrusted repository", func(t *testing.T) {
 		t.Parallel()
 		f := setupDurability(t)
-		d := f.durability(t, "boot-a", 0, WithWatermark(testWatermarkPath))
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
 
 		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
 		f.synced.fail(errors.New("input/output error"))
 		require.ErrorIs(t, d.Settle(f.path, false), ErrUntrusted)
-		require.False(t, d.DefersWatermark(f.path))
+		require.False(t, d.CanDefer(f.path))
+	})
+
+	t.Run("a repository without a stack", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.NoError(t, os.Rename(filepath.Join(f.path, "reftable"), filepath.Join(t.TempDir(), "reftable")))
+		require.False(t, d.CanDefer(f.path))
 	})
 
 	t.Run("a process that does not own the storage", func(t *testing.T) {
 		t.Parallel()
 		f := setupDurability(t)
-		d := f.unowned(t, "boot-a", 0, WithWatermark(testWatermarkPath))
+		d := f.unowned(t, "boot-a", 0, WithWmark(wmPath))
 
-		require.False(t, d.DefersWatermark(f.path))
+		require.False(t, d.CanDefer(f.path))
 	})
 
 	t.Run("a nil durability", func(t *testing.T) {
 		t.Parallel()
 		var d *Durability
-		require.False(t, d.DefersWatermark("/any"))
+		require.False(t, d.CanDefer("/any"))
 	})
 }
 
-func TestSettleMakesTheWatermarkDurableBeforeTheMarkerGoes(t *testing.T) {
+func TestSettle(t *testing.T) {
 	t.Parallel()
 
 	setup := func(t *testing.T) (durabilityFixture, *Durability, string, *bool) {
 		f := setupDurability(t)
-		watermark := testWatermarkPath(f.path)
+		watermark := wmPath(f.path)
 		require.NoError(t, os.MkdirAll(filepath.Dir(watermark), 0o755))
 		require.NoError(t, os.WriteFile(watermark, []byte(`{"repo_id":1,"seq":2}`), 0o644))
 
 		var markerAtSync bool
 		var d *Durability
-		d = f.durability(t, "boot-a", 0, WithWatermark(testWatermarkPath), WithSync(func(file *os.File) error {
+		d = f.durability(t, "boot-a", 0, WithWmark(wmPath), WithSync(func(file *os.File) error {
 			if file.Name() == watermark {
 				_, err := os.Stat(f.markerPath(t, d))
 				markerAtSync = err == nil

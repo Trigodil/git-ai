@@ -114,7 +114,7 @@ func TestSyncerCatchUpMarksTheRepositoryDirty(t *testing.T) {
 	e.verifySynced(t, repo)
 }
 
-func TestSyncerWritesTheWatermarkOfADirtyRepositoryWithoutFsync(t *testing.T) {
+func TestDefer(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOptions{})
@@ -156,7 +156,7 @@ func TestSyncerWritesTheWatermarkOfADirtyRepositoryWithoutFsync(t *testing.T) {
 	require.Equal(t, []string{"watermark"}, points)
 }
 
-func TestSyncerMovesAsideADirtyRepositoryWithATornWatermark(t *testing.T) {
+func TestTorn(t *testing.T) {
 	t.Parallel()
 
 	for name, torn := range map[string][]byte{"empty": nil, "garbage": []byte(`{"repo_id":`)} {

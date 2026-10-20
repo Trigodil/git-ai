@@ -36,8 +36,9 @@
 // anything, and a changeset row in the database (synchronous=FULL) could
 // outlive a pack whose data never reached the disk. For file buckets Put fsyncs
 // the content before the link publishes it, and fsyncs the directories that
-// hold the new entry (up to the bucket root) after it. The mem and remote
-// drivers commit their objects durably themselves.
+// hold the new entry after it, up to the first one whose whole chain is durable.
+// Bucket directories are never removed while a server uses the bucket: a recreated one could reuse an inode.
+// The mem and remote drivers commit their objects durably themselves.
 //
 // Listing. List reports objects only. fileblob also reports a writer's
 // temporary file (<key>.<nanos>.tmp, in the key's directory because file
@@ -319,21 +320,17 @@ func syncFile(f *os.File) error {
 	return f.Sync()
 }
 
-// Fsyncs dir and its ancestors inside the bucket root, up to the first one an earlier
-// call made durable that is still the same directory.
+// Fsyncs dir and its ancestors inside the bucket root, up to the first one whose whole chain an
+// earlier call made durable. The walk caches its directories only once it reached that point.
 func (s *Store) syncDirs(dir string) error {
 	inside := dir == s.root || strings.HasPrefix(dir, s.root+string(filepath.Separator))
-	var child string
-	var childInfo os.FileInfo
+	visited := map[string]os.FileInfo{}
 	for d := dir; ; d = filepath.Dir(d) {
 		if err := syncDir(d); err != nil {
 			return err
 		}
-		if child != "" {
-			s.durableDirs.Store(child, childInfo)
-		}
 		if !inside || d == s.root {
-			return nil
+			break
 		}
 
 		info, err := os.Stat(d)
@@ -341,10 +338,15 @@ func (s *Store) syncDirs(dir string) error {
 			return fmt.Errorf("stat directory: %w", err)
 		}
 		if known, ok := s.durableDirs.Load(d); ok && os.SameFile(known.(os.FileInfo), info) {
-			return nil
+			break
 		}
-		child, childInfo = d, info
+		visited[d] = info
 	}
+
+	for d, info := range visited {
+		s.durableDirs.Store(d, info)
+	}
+	return nil
 }
 
 // syncDir fsyncs a directory so that the entries created in it are durable.

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/feder-cr/git-ai/internal/graft/corestore"
@@ -70,7 +71,7 @@ func TestPutSyncsFileBeforeCommitAndSyncsDirectories(t *testing.T) {
 	require.Equal(t, content, data)
 }
 
-func TestPutSyncsOnlyTheDirectoriesWhoseEntriesAreNotDurable(t *testing.T) {
+func TestDirs(t *testing.T) {
 	dir := t.TempDir()
 	var dirSyncs []string
 	s := openFileStoreForTest(t, dir, func(path string, isDir bool) error {
@@ -101,6 +102,77 @@ func TestPutSyncsOnlyTheDirectoriesWhoseEntriesAreNotDurable(t *testing.T) {
 	require.NoError(t, os.Rename(repoDir, filepath.Join(t.TempDir(), "old")))
 	put(1)
 	require.Equal(t, []string{packsDir, repoDir, filepath.Join(dir, "repos")}, dirSyncs)
+}
+
+func TestDirErr(t *testing.T) {
+	dir := t.TempDir()
+	reposDir := filepath.Join(dir, "repos")
+	fail := true
+	var dirSyncs []string
+	s := openFileStoreForTest(t, dir, func(path string, isDir bool) error {
+		if !isDir {
+			return nil
+		}
+		if fail && path == reposDir {
+			return errors.New("input/output error")
+		}
+		dirSyncs = append(dirSyncs, path)
+		return nil
+	})
+
+	content := []byte("pack content")
+	require.Error(t, s.Put(testhelper.Context(t), corestore.NewPackKey(1, sha256.Sum256(content)), bytes.NewReader(content)))
+
+	fail = false
+	dirSyncs = nil
+	require.NoError(t, s.Put(testhelper.Context(t), corestore.NewPackKey(1, sha256.Sum256(content)), bytes.NewReader(content)))
+	repoDir := filepath.Join(reposDir, "1")
+	require.Equal(t, []string{filepath.Join(repoDir, "packs"), repoDir, reposDir, dir}, dirSyncs)
+}
+
+func TestConcur(t *testing.T) {
+	dir := t.TempDir()
+	reposDir := filepath.Join(dir, "repos")
+	reached, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	held := false
+	var dirSyncs []string
+	s := openFileStoreForTest(t, dir, func(path string, isDir bool) error {
+		if !isDir {
+			return nil
+		}
+		mu.Lock()
+		hold := !held && path == reposDir
+		held = held || hold
+		dirSyncs = append(dirSyncs, path)
+		mu.Unlock()
+		if hold {
+			close(reached)
+			<-release
+		}
+		return nil
+	})
+	put := func() error {
+		content := []byte("pack content")
+		return s.Put(testhelper.Context(t), corestore.NewPackKey(1, sha256.Sum256(content)), bytes.NewReader(content))
+	}
+
+	// The first Put is held while it fsyncs repos/, after packs/ and repos/1/.
+	first := make(chan error, 1)
+	go func() { first <- put() }()
+	<-reached
+	mu.Lock()
+	dirSyncs = nil
+	mu.Unlock()
+
+	require.NoError(t, put())
+	repoDir := filepath.Join(reposDir, "1")
+	mu.Lock()
+	require.Equal(t, []string{filepath.Join(repoDir, "packs"), repoDir, reposDir, dir}, dirSyncs)
+	mu.Unlock()
+
+	close(release)
+	require.NoError(t, <-first)
 }
 
 func TestPutFailedFileSyncLeavesNoObject(t *testing.T) {

@@ -897,15 +897,18 @@ func WriteWatermark(repoPath string, w corestore.Watermark) error {
 	if err := os.MkdirAll(dir, mode.Directory); err != nil {
 		return fmt.Errorf("write watermark: %w", err)
 	}
-	return writeWatermark(repoPath, w, true)
+	return writeWMark(repoPath, w, true)
 }
 
-// WriteWatermarkNoSync writes the watermark without fsync, into an existing directory.
-func WriteWatermarkNoSync(repoPath string, w corestore.Watermark) error {
-	return writeWatermark(repoPath, w, false)
+// WriteLazy writes the watermark without fsync, or with fsync when its directory is missing.
+func WriteLazy(repoPath string, w corestore.Watermark) error {
+	if _, err := os.Stat(filepath.Dir(WatermarkPath(repoPath))); err != nil {
+		return WriteWatermark(repoPath, w)
+	}
+	return writeWMark(repoPath, w, false)
 }
 
-func writeWatermark(repoPath string, w corestore.Watermark, sync bool) (returnedErr error) {
+func writeWMark(repoPath string, w corestore.Watermark, sync bool) (returnedErr error) {
 	dir := filepath.Dir(WatermarkPath(repoPath))
 
 	data, err := json.Marshal(w)

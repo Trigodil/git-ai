@@ -278,8 +278,8 @@ func WithSync(sync func(f *os.File) error) DurabilityOption {
 	return func(d *Durability) { d.sync = sync }
 }
 
-// WithWatermark lets a dirty repository's watermark be written without fsync.
-func WithWatermark(path func(repoPath string) string) DurabilityOption {
+// WithWmark lets a dirty repository's watermark be written without fsync.
+func WithWmark(path func(repoPath string) string) DurabilityOption {
 	return func(d *Durability) { d.watermark = path }
 }
 
@@ -602,10 +602,15 @@ func (d *Durability) Dirty() []string {
 	return paths
 }
 
-// DefersWatermark reports whether the watermark at path may be written without fsync now: the marker
+// CanDefer reports whether the watermark at path may be written without fsync now: the marker
 // is durable and goes only after the watermark. The caller holds the syncer's repository lock.
-func (d *Durability) DefersWatermark(path string) bool {
+func (d *Durability) CanDefer(path string) bool {
 	if !d.Deferring() || d.watermark == nil {
+		return false
+	}
+
+	// A marker without a stack goes without a durable step, so its watermark is written with fsync.
+	if stack, err := hasStack(path); err != nil || !stack {
 		return false
 	}
 
@@ -719,7 +724,7 @@ func (d *Durability) settleLocked(path string, repo RepoRef) error {
 	st := d.lockState(path)
 	defer st.file.Unlock()
 
-	if err := d.syncStackAndWatermark(path, st); err != nil {
+	if err := d.syncAll(path, st); err != nil {
 		return d.stepErrorLocked(st, repo, path, err)
 	}
 	if d.crashAt == crashDurableStep {
@@ -1086,7 +1091,7 @@ func (d *Durability) syncStack(path string, st *refState) error {
 }
 
 // Makes the stack, then the watermark file and its directory, durable.
-func (d *Durability) syncStackAndWatermark(path string, st *refState) error {
+func (d *Durability) syncAll(path string, st *refState) error {
 	if err := d.syncStack(path, st); err != nil {
 		return err
 	}
@@ -1205,7 +1210,7 @@ func (d *Durability) forgetLocked(path string, st *refState, repo RepoRef) (bool
 		return false, err
 	}
 	dropped := false
-	if err = d.syncStackAndWatermark(path, st); err != nil {
+	if err = d.syncAll(path, st); err != nil {
 		err = d.stepErrorLocked(st, repo, path, err)
 	} else {
 		dropped, err = d.dropMarker(path, st, true)
