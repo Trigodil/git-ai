@@ -885,7 +885,7 @@ func (s *Syncer) advanceLocked(path string, wm corestore.Watermark) corestore.Wa
 	}
 
 	next := corestore.Watermark{RepoID: wm.RepoID, Seq: newSeq}
-	if err := gitops.WriteWatermark(path, next); err != nil {
+	if err := s.writeWatermarkLocked(path, next); err != nil {
 		s.logger.WithError(err).WithField("repository_path", path).Error("storage core: write watermark")
 		return wm
 	}
@@ -1325,10 +1325,20 @@ func (s *Syncer) applyLocked(ctx context.Context, repo *localrepo.Repo, hash git
 // reached. The caller holds the repository lock.
 func (s *Syncer) commitWatermarkLocked(path string, repoID int64, seq uint64) (corestore.Watermark, error) {
 	wm := corestore.Watermark{RepoID: repoID, Seq: seq}
-	if err := gitops.WriteWatermark(path, wm); err != nil {
+	if err := s.writeWatermarkLocked(path, wm); err != nil {
 		return corestore.Watermark{}, structerr.NewInternal("storage core: write watermark: %w", err)
 	}
 	return s.advanceLocked(path, wm), nil
+}
+
+// Writes the watermark, without fsync while the repository is dirty (caller holds the lock).
+func (s *Syncer) writeWatermarkLocked(path string, wm corestore.Watermark) error {
+	if s.core.RefDurability.DefersWatermark(path) {
+		s.hook("watermark deferred")
+		return gitops.WriteWatermarkNoSync(path, wm)
+	}
+	s.hook("watermark")
+	return gitops.WriteWatermark(path, wm)
 }
 
 // movedSince reports whether a reference of moves no longer has its old value.

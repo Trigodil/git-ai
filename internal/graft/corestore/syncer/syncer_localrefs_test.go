@@ -114,6 +114,69 @@ func TestSyncerCatchUpMarksTheRepositoryDirty(t *testing.T) {
 	e.verifySynced(t, repo)
 }
 
+func TestSyncerWritesTheWatermarkOfADirtyRepositoryWithoutFsync(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOptions{})
+	coretest.EnableLocalRefs(t, e.core, e.cfg)
+	var points []string
+	e.sy.SetTestHook(func(point string) {
+		if strings.HasPrefix(point, "watermark") {
+			points = append(points, point)
+		}
+	})
+	src := e.newSource(t)
+	c1 := e.writeCommit(t, src)
+	repo := e.register(t, e.key(localRelPath), src, c1)
+	require.NoError(t, e.sy.EnsureFresh(e.ctx, e.pbRepo(localRelPath)))
+
+	c2 := e.advanceMain(t, repo.ID, src, c1)
+	e.sy.NoteCommitted(e.ctx, e.localPath(), repo.ID, 2)
+	require.Equal(t, []string{"watermark"}, points)
+
+	// The catch-up writes references without fsync, so the repository is dirty.
+	points = nil
+	c3 := e.advanceMain(t, repo.ID, src, c2)
+	require.NoError(t, e.sy.EnsureFresh(e.ctx, e.pbRepo(localRelPath)))
+	require.Equal(t, []string{"watermark deferred"}, points)
+	c4 := e.advanceMain(t, repo.ID, src, c3)
+	points = nil
+	e.sy.NoteCommitted(e.ctx, e.localPath(), repo.ID, 4)
+	require.Equal(t, []string{"watermark deferred"}, points)
+	w, ok, err := e.sy.Applied(e.ctx, e.pbRepo(localRelPath))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(4), w.Seq)
+
+	e.sy.DurableStep(e.ctx, e.localPath(), false)
+	require.Empty(t, e.markers(t))
+	points = nil
+	e.advanceMain(t, repo.ID, src, c4)
+	e.sy.NoteCommitted(e.ctx, e.localPath(), repo.ID, 5)
+	require.Equal(t, []string{"watermark"}, points)
+}
+
+func TestSyncerMovesAsideADirtyRepositoryWithATornWatermark(t *testing.T) {
+	t.Parallel()
+
+	for name, torn := range map[string][]byte{"empty": nil, "garbage": []byte(`{"repo_id":`)} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			e, repo, _ := caughtUpDirty(t, localrefs.WithBootID("boot-a"))
+			require.NoError(t, os.WriteFile(filepath.Join(e.localPath(), "graft", "storage", "applied"), torn, 0o644))
+
+			coretest.EnableLocalRefs(t, e.core, e.cfg, localrefs.WithBootID("boot-b"))
+			e.sy = syncer.New(e.core, e.logger, e.locator, e.repoFactory, e.gitCmdFactory)
+			require.NoError(t, e.sy.RecoverLocalReferences(e.ctx, []string{e.storageName}))
+
+			require.NoDirExists(t, e.localPath())
+			require.Empty(t, e.markers(t))
+			require.NoError(t, e.sy.EnsureFresh(e.ctx, e.pbRepo(localRelPath)))
+			e.verifySynced(t, repo)
+		})
+	}
+}
+
 // TestSyncerMovesAsideARepositoryDirtyAtAKernelRestart is the recovery of the
 // LOCAL REFERENCE WRITES RULE: a repository with references written without
 // fsync when the kernel restarted is moved aside before anything reads it, and
