@@ -2429,6 +2429,49 @@ What the document can and cannot say. For Go there are two independent measureme
 evidence that the label, not the gate, is what keeps the bound up; that evidence is post-hoc and from one reader, and was not tested. For TypeScript nothing is claimed. The paid spend of this campaign stage was $0.805 (15.16) and $0.968 (15.18) booked, $0 for everything else.
 `wsl --shutdown` was run once without asking the PM (15.18); it is not to be repeated.
 
+### 15.22 A second label (v2b) for the existing answers: not validated (measured, $0.62 booked)
+
+**The answer, against the criteria fixed beforehand: not validated, and not used.** After the audit of 15.18 (18 of the 25 wrong-but-PASS Python answers were artifacts of the label), Federico reopened the work on the data already
+collected (no new mining, no new writer run, no TypeScript) with one question: do the existing results hold under a better label, without bending the label in our favour? A second label, v2b, was designed, hashed and validated before any
+application. It **rejected the 21 real Go errors (21 of 21) and accepted 38 of the 39 right answers of the draw, but accepted only 2 of the 6 artifacts (4 needed)**. By the rule written beforehand v2b is not used: **no v2b figure exists for
+any gate** (Python G1, G1+SEM, T; Go fresh; Go held-out were not run). The figures of 15.15 to 15.19 stand with the v1 label and its stated limits.
+
+**The label** (`run/label2/PROTOCOL-LABEL2.txt`, sha256 `62b059bcc29b`; Amendments 1 `5eeb47d9a184`, 2 `e884c774612f`, 2b `ac3dd2a15372`):
+1. *Objective rule, by code:* where the answer fails the project's tests or build and the developer's file passes, the label is wrong and no judge is called.
+2. *Auto-accept:* the answer and the developer's file are equal ignoring blank lines and whitespace.
+3. *Judges 1 and 2 (the models of v1), judge 3 on disagreements:* they see the conflict regions where the two resolutions differ (BASE, OURS, THEIRS, context, the two resolutions) **and every difference outside the regions**, marked as such. Verdicts
+   ACCEPT, REJECT, or BEYOND ("the developer went beyond both sides"), the last allowed only with a quote that the code verifies (a line of the developer's file that is in neither side). An unparsable verdict is asked once more, then it is REJECT.
+4. *Validation as a gate:* v2b must reject at least 18 of the 21 real Go errors of the PM's audit, accept at least 4 of its 6 artifacts, and accept at least 90% of 39 right answers (a stratified draw of 40, seed 20261022, minus one known real error).
+   The 25 Python cases of the audit, which inspired v2b, were in-sample and apart.
+
+**A flaw found before spending.** The first design (v2a) judged *only inside the conflict regions* and accepted answers with identical regions without a call. A free check on the data showed that this made the label blind to a main kind
+of real Go error: a rename or an API change that the developer propagated in lines next to the conflict, which git merged cleanly (for example `base.Flag.G` against `Debug.G`, `n.Pos` against `n.Lineno`): 67 answers had identical regions, among them
+Go answers whose tests and build **fail**. v2a was withdrawn and never ran; v2b adds the differences outside the regions to what the judge sees, and the objective rule on top. The free pre-check of v2b: of the 21 real errors, 10 are rejected by the objective rule alone.
+
+**What the validation gave.** First run (booked $0.46): real errors rejected 21 of 21 (met); artifacts accepted 2 of 6 (not met); right answers accepted 34 of 39 (not met). The cause of the last miss was technical: **judge 3 (mistral-large-4-0, reasoning effort low,
+max_tokens 3000) returned an empty answer, twice in a row, in 8 of its 11 calls**, and the protocol counted each as REJECT. One diagnostic call showed `finish_reason: length`, 3000 completion tokens of which 2999 were reasoning, and no content: the model spent
+its whole budget thinking. An amendment, declared **post-hoc** (decided after seeing the result, with a mechanical table: length with empty content gives max_tokens 8000), re-ran the 8 calls; all 8 parsed (4 ACCEPT, 4 REJECT) and the criteria were evaluated unchanged:
+
+| criterion | needed | first run | after the repair |
+|---|---|---|---|
+| real Go errors rejected (21; 10 by the objective rule) | 18 | 21 | 21 (met) |
+| artifacts accepted (6) | 4 | 2 | **2 (not met)** |
+| right answers accepted (39) | 36 | 34 | 38 (met) |
+
+The repair removed the false rejections of right answers (the empty answers decided 4 of the 5 rejections) and left the artifacts where they were: of the six, three are REJECT by judge 3, one by judges 1 and 2, and two are accepted. That was
+the weak point the protocol predicted: v2b cannot absorb the artifacts of the kind "the developer dropped a side" or "the developer's file is duplicated", because the answer differs from what the developer kept, and a label that is allowed to accept
+an answer that differs from the developer on purpose is a different claim, which this validation does not support.
+
+**The bias of v1 that this exposed.** Judge 3 gave empty answers in the v1 runs too, and an answer without a verdict counted wrong there: 15.15 held-out OSS 15 on the first pass and 2 in the final file (of 79 calls), 15.15 agent-PR 3 (of 52), 15.16 fresh Go 1 (of 36),
+15.18 Python 1 (of 8): **7 of 175 judge-3 calls, 4%**, plus the 23 answers of 15.16 that judge 3 never reached for lack of cap. The v1 runner asked up to four times with a backoff, which is why it was small; it goes against the answers (counted wrong), and it is part of why the v1
+wrong rates are upper estimates. It is not enough to explain the 18 of 25 artifacts.
+
+**Cost.** Judge 1 $0.0087, judge 2 $0.1776, judge 3 $0.4201 (including the re-run), the diagnostic call $0.0132: **$0.620 booked**, about $0.49 on the key for the stages whose usage could be read (the key's usage endpoint lags), against the cap of $1.4 that Federico
+approved after the first $1.0. One deviation of the scripts (Amendment 1: the key had to be exported before its usage was read; the first command stopped at once and nothing was spent). The application stages were not run.
+
+**Reading.** (1) The results of the campaign are unchanged and are what they were: Go met and replicated, Python not met with v1, TypeScript not run. (2) The objective rule (the project's own tests or build) is the part of v2b that works without doubt (21 of 21 real
+Go errors). (3) A better label than v1 for the Python artifacts would have to be reference-free (judge the answer as a merge of the two sides), which is arm B of 15.12, not a refinement of the reference-based arm; it was not designed or measured here.
+
 ### Appendix A: the measurement log of section 15
 
 What was run, when, on what, at what cost. Data, scripts and reports are in `c1-work/` (outside the repository:
@@ -2461,6 +2504,7 @@ read from the key before and after each run and agrees, except where stated.
 | 21 | the Python run of 15.18: Luna and glm on 509 files, the verify simulator, judges 1-3 on the 146 G1-landed answers that differ from the human's file (judge 3 on the 8 disagreements), the differential pytest harness on the 331 G1-landed files | manifest-pyfresh (509) | scripts/pyrun.sh, test_gate_py.py, py_report.py outside the repository | $0.2728 + $0.2718 + $0.0129 + $0.2271 + $0.1833 = $0.968 (the key: $0.920) |
 | 21 | SEM and BIND of 15.19 applied once to the 331 G1-landed Python files | PROTOCOL-PYSEM (c99a36857fd0) | scripts/pysem.py, pysem_eval.py outside the repository | $0 |
 | 22 | the TypeScript preparation of 15.20: the harness, the recipes on 3 merges per repository, the mutation check, the hashed protocol; 1,028 more cases mined; **never applied** (stopped) | manifest-tsfresh (549), PROTOCOL-TS (dcf8da2f22e2) | scripts/test_gate_ts.py, tsrun.sh, ts_ids.py, ts_report.py outside the repository | $0 |
+| 22 | label v2b of 15.22: validation on the PM's audit sets (27 Go held-out wrong, 40 right answers drawn, 56 judge calls) with the objective rule, judges 1 and 2 and judge 3 on disagreements; diagnostic call; re-run of 8 judge-3 calls (Amendment 2); **not validated, application not run** | PROTOCOL-LABEL2 (62b059bcc29b) and Amendments 1, 2, 2b | scripts/v2core.py, v2_judge.py, v2run.sh, v2_report.py outside the repository | $0.0087 + $0.1776 + $0.4201 + $0.0132 = $0.620 booked |
 | 20 | the agree_with gate through fake providers and the real graft-resolve with two fake command models | tests only | 3cc898c | $0 |
 
 **Why a screened model is skipped.** The screening is a smoke check of five cases (a go, a java, a python, a
