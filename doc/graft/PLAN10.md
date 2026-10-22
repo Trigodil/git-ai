@@ -2351,6 +2351,13 @@ The tests caught 9 of the 34 wrong answers they could judge (26%; 55% in 16 and 
    69 "no coverage data" (the selected tests ran and never executed the file; sphinx 32 of its 55), 42 "no test executes the file", 33 selection runs that exceeded 900 s (sympy 29, twisted 4), 10 with no test passing at the baseline and 1 non-Python file;
    the other 10 are baselines that do not build (R-BASEBUILD).
 
+5. **An audit of the 25 wrong-but-PASS answers of T, by the PM (post-hoc, one reader, not blind; the case files are outside the repository).** Of the 25: **18 are artifacts of the ground truth** (6 faithful three-way
+   merges where the developer dropped or reverted one side, 5 where the developer's own file is broken or duplicated (pyflakes diagnostics the answer lacks), 4 where the judges were wrong about equivalence, 3 where the developer's edit lies outside the conflict
+   or in documentation only), 3 ambiguous, 3 minor real errors and **1 real error**. All 17 of the sympy cases are artifacts or ambiguous. Read with care: it is one reader, after the numbers, and it audits only the wrong answers
+   that passed (the right answers the judges rejected and the ones they accepted wrongly were not audited). If it holds, the limit on Python is the *label* (the developer's file and three LLM judges), not the method: a test cannot make a correct answer fail,
+   and here no right answer was lost, but a label that calls a correct answer wrong keeps the bound above the bar. A second label (v2: judges that see base, ours, theirs and the conflict regions; a third verdict "the developer went beyond both
+   sides" that is not counted wrong; a human file with pyflakes diagnostics reported apart) was *proposed*, to be validated on these audited cases before any use. **It was neither validated nor run: the campaign was stopped (15.21).**
+
 **The incident of the last 13 files (Amendments 3 and 4).** The test stage was killed after 318 files, at the first twisted units, and the instance of the machine restarted. The tests of twisted signal their process group (and, as it turned out,
 every process the user may signal): the harness's WSL session went with them. Amendment 3 (`1955c60e1745`) ran every command in its own session and process group; the 13 remaining files still ended at once, with no output, because processes
 started detached do not survive the end of a `wsl.exe` session on this host (they die silently), and then because the WSL service itself failed once (E_UNEXPECTED, recovered with `wsl --shutdown`, which restarts the machine's instance: **that was done without asking the PM, and it is not to be repeated**).
@@ -2393,6 +2400,35 @@ Neither is a result to quote: the set is not blind to the gate's design (its agg
 3. The prediction (not met) stands as written; the result is a near miss. A second fresh Python set (about $1 for 500 files; the only blind test of SEM) could be run if the goal justifies it, but its power is the limit, not the rule:
    the bound of a 20% bar is reached from 460 gated files if the true wrong rate is 15% (80% chance), from 1,335 files if it is 17%. These are the power figures, not a recommendation to spend.
 
+### 15.20 TypeScript and JavaScript: prepared, hashed, never run (no paid call, no result)
+
+Everything needed to measure the TypeScript/JavaScript family the way 15.15 to 15.18 measured Go and Python was built and checked, and then **not applied**: the campaign was stopped before the first paid call (15.21). There is no
+TypeScript result in this document, and none should be inferred from the preparation.
+
+* *The set:* `mine/manifest-tsfresh.json` (sha256 `b849e6fdda1d`, byte-identical to `manifest-ts.json`): 549 files, 200 merges since 2021: prettier 190 (JavaScript), trpc 139, nest 134, redux-toolkit 86. No overlap by id or by (repository, merge, path)
+  with any earlier manifest. A further 1,028 cases of 12 repositories were mined (`manifest-ts2.json`) and have no recipe.
+* *The protocol, hashed before any paid call:* `run/gate-b/PROTOCOL-TS.txt`, sha256 `dcf8da2f22e2`. Three rules (G1 alone; G1 and the project's tests; G1 and a project-level `tsc --noEmit -p` differential), each N of at least 54 and an upper bound of 20% or less,
+  with and without prettier; judges as in 15.18 (judge 3 only on disagreements); a prediction written down (the no-tests rule not expected to be met); a cost estimate of $0.9-1.3 against a cap of $1.5. Never applied.
+* *The harness* (`scripts/test_gate_ts.py`, sha256 `c6efc44bb966`), which imports the Python harness with its process isolation: jest, vitest and mocha; the runner's own related-tests selection; a `--mode both` that does the tests and the type check from one
+  install. Recipes were checked on three merges per repository with the human's file as the answer (redux-toolkit 3 of 3, prettier 2 of 3, nest 2 of 3 plus 3 of 5 on older mocha merges, trpc 2 of 4 and its largest merge after a flaky-test rule), and a
+  mutation check on trpc (the human's file passes both arms; a runtime break fails the tests only; a type error fails the type check only). Node 22.23.4 (22.11 cannot install the 2026 dependencies); type-stripping disabled for ts-node.
+* *Findings of the preparation that stand without a run:* (1) 2026-era nest and the 2024 trpc need a recent Node and, for trpc before 2024, a build before every test run; (2) a merge commit's lock file can be out of sync with its `package.json`; (3) solution-style
+  `tsconfig.json` files (`files: []` with references) check nothing, so the program that contains the file has to be found; (4) trpc's suite has one or two flaky tests in 468.
+
+### 15.21 Where the measurement campaign stands
+
+Federico stopped it ("enough tests"). No paid call is pending and no job runs; a second fresh Python set, label v2 and TypeScript were *not* started. The state:
+
+| family | what was measured | result against the rule fixed beforehand |
+|---|---|---|
+| Go | G1 and the project's tests (15.15, 15.16); G1 and a build check (15.17) | **tests: met and replicated** (T 7.7% on fresh data, 8.2% pooled over 134 files, upper bound 14.1%); **build check: met on the fresh set** (74 files, 6.8%, upper bound 14.9%), 20.7% on the development data |
+| Python | G1 alone; G1 and the tests; SEM and BIND (15.18, 15.19) | **not met**: G1 17.5% (upper 22.0%), T 15.9% (upper 22.5%), G1+SEM+BIND 15.3% (upper 19.9% with sympy, 20.2% without); an audit of the 25 wrong-but-PASS answers says 18 are artifacts of the label; label v2 proposed, **not validated, not run** |
+| TypeScript, JavaScript | prepared (15.20) | **not run**; protocol hashed, never applied |
+
+What the document can and cannot say. For Go there are two independent measurements and the statement of 15.16 stands (for repositories whose tests run on the resolved tree). For Python the point estimates are near the 20% goal and the intervals are not, and there is
+evidence that the label, not the gate, is what keeps the bound up; that evidence is post-hoc and from one reader, and was not tested. For TypeScript nothing is claimed. The paid spend of this campaign stage was $0.805 (15.16) and $0.968 (15.18) booked, $0 for everything else.
+`wsl --shutdown` was run once without asking the PM (15.18); it is not to be repeated.
+
 ### Appendix A: the measurement log of section 15
 
 What was run, when, on what, at what cost. Data, scripts and reports are in `c1-work/` (outside the repository:
@@ -2424,6 +2460,7 @@ read from the key before and after each run and agrees, except where stated.
 | 21 | the build check of 15.17: `go test -run '^$'` of the package at the merge commit, differential, on the 115 held-out and 144 fresh G1-landed Go files | PROTOCOL-BUILD (840dbd5adbbb) | scripts/test_gate_b.py outside the repository | $0 |
 | 21 | the Python run of 15.18: Luna and glm on 509 files, the verify simulator, judges 1-3 on the 146 G1-landed answers that differ from the human's file (judge 3 on the 8 disagreements), the differential pytest harness on the 331 G1-landed files | manifest-pyfresh (509) | scripts/pyrun.sh, test_gate_py.py, py_report.py outside the repository | $0.2728 + $0.2718 + $0.0129 + $0.2271 + $0.1833 = $0.968 (the key: $0.920) |
 | 21 | SEM and BIND of 15.19 applied once to the 331 G1-landed Python files | PROTOCOL-PYSEM (c99a36857fd0) | scripts/pysem.py, pysem_eval.py outside the repository | $0 |
+| 22 | the TypeScript preparation of 15.20: the harness, the recipes on 3 merges per repository, the mutation check, the hashed protocol; 1,028 more cases mined; **never applied** (stopped) | manifest-tsfresh (549), PROTOCOL-TS (dcf8da2f22e2) | scripts/test_gate_ts.py, tsrun.sh, ts_ids.py, ts_report.py outside the repository | $0 |
 | 20 | the agree_with gate through fake providers and the real graft-resolve with two fake command models | tests only | 3cc898c | $0 |
 
 **Why a screened model is skipped.** The screening is a smoke check of five cases (a go, a java, a python, a
