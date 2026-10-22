@@ -36,9 +36,12 @@
 // anything, and a changeset row in the database (synchronous=FULL) could
 // outlive a pack whose data never reached the disk. For file buckets Put fsyncs
 // the content before the link publishes it, and fsyncs the directories that
-// hold the new entry after it, up to the first one whose whole chain is durable.
-// Bucket directories are never removed while a server uses the bucket: a recreated one could reuse an inode.
-// The mem and remote drivers commit their objects durably themselves.
+// hold the new entry after it, up to the first one whose whole chain up to the
+// bucket root an earlier Put made durable. That chain is recognized by the
+// directory's identity (device and inode), so bucket directories are never
+// removed while a server uses the bucket: a directory removed and created again
+// could reuse the inode of one that was durable. The mem and remote drivers
+// commit their objects durably themselves.
 //
 // Listing. List reports objects only. fileblob also reports a writer's
 // temporary file (<key>.<nanos>.tmp, in the key's directory because file
@@ -87,7 +90,8 @@ type Store struct {
 	// root is the cleaned directory of a file bucket and empty for any other
 	// driver. Put makes the writes of a file bucket durable from it.
 	root string
-	// Directories whose entry in their parent was made durable, by path.
+	// durableDirs holds, by path, the os.FileInfo of the directories of a file
+	// bucket whose entries up to the root were made durable (syncDirs).
 	durableDirs sync.Map
 }
 
@@ -320,8 +324,13 @@ func syncFile(f *os.File) error {
 	return f.Sync()
 }
 
-// Fsyncs dir and its ancestors inside the bucket root, up to the first one whose whole chain an
-// earlier call made durable. The walk caches its directories only once it reached that point.
+// syncDirs fsyncs dir and, when dir is inside the bucket root, each of its
+// ancestors: the directories that the driver may have created, and the entry
+// that the link created. The walk stops at the root, or after the first
+// ancestor whose entries up to the root an earlier walk made durable. The
+// directories it visited are remembered only when it got there without an
+// error, so that a concurrent Put never stops at a directory whose own entry is
+// not durable yet.
 func (s *Store) syncDirs(dir string) error {
 	inside := dir == s.root || strings.HasPrefix(dir, s.root+string(filepath.Separator))
 	visited := map[string]os.FileInfo{}

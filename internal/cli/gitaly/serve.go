@@ -1006,7 +1006,8 @@ func openLocalReferenceWrites(core *corestore.Core, locator storage.Locator, log
 	core.RefAdmission = localrefs.NewAdmission(lockTimeout, lockTimeout)
 	prometheus.MustRegister(core.RefAdmission)
 
-	durability, err := localrefs.NewDurability(locator, localrefs.DurableStepIdle, localrefs.WithWmark(gitops.WatermarkPath))
+	durability, err := localrefs.NewDurability(locator, localrefs.DurableStepIdle,
+		localrefs.WithWatermark(gitops.WatermarkPath))
 	if err != nil {
 		return fmt.Errorf("graft storage core: %w", err)
 	}

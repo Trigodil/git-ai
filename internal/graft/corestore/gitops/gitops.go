@@ -935,18 +935,24 @@ func WriteWatermark(repoPath string, w corestore.Watermark) error {
 	if err := os.MkdirAll(dir, mode.Directory); err != nil {
 		return fmt.Errorf("write watermark: %w", err)
 	}
-	return writeWMark(repoPath, w, true)
+	return writeWatermarkFile(repoPath, w, true)
 }
 
-// WriteLazy writes the watermark without fsync, or with fsync when its directory is missing.
-func WriteLazy(repoPath string, w corestore.Watermark) error {
+// WriteWatermarkWithoutSync writes the watermark atomically (temporary file,
+// rename) without fsync, for a repository whose durable step makes it durable
+// later (localrefs.Durability.DefersWatermark). When graft/storage is missing it
+// writes as WriteWatermark does, so that the directory it creates is durable.
+func WriteWatermarkWithoutSync(repoPath string, w corestore.Watermark) error {
 	if _, err := os.Stat(filepath.Dir(WatermarkPath(repoPath))); err != nil {
 		return WriteWatermark(repoPath, w)
 	}
-	return writeWMark(repoPath, w, false)
+	return writeWatermarkFile(repoPath, w, false)
 }
 
-func writeWMark(repoPath string, w corestore.Watermark, sync bool) (returnedErr error) {
+// writeWatermarkFile writes the watermark into graft/storage, which exists,
+// through a temporary file and a rename; sync fsyncs the file before the rename
+// and the directory after it.
+func writeWatermarkFile(repoPath string, w corestore.Watermark, sync bool) (returnedErr error) {
 	dir := filepath.Dir(WatermarkPath(repoPath))
 
 	data, err := json.Marshal(w)

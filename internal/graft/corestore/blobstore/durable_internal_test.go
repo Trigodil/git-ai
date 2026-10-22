@@ -71,7 +71,10 @@ func TestPutSyncsFileBeforeCommitAndSyncsDirectories(t *testing.T) {
 	require.Equal(t, content, data)
 }
 
-func TestDirs(t *testing.T) {
+// TestPutSyncsOnlyTheDirectoriesThatAreNotDurable checks that a Put fsyncs the
+// directories up to the bucket root once, then only the directory of its key,
+// and that a directory created again (another inode) is fsynced again.
+func TestPutSyncsOnlyTheDirectoriesThatAreNotDurable(t *testing.T) {
 	dir := t.TempDir()
 	var dirSyncs []string
 	s := openFileStoreForTest(t, dir, func(path string, isDir bool) error {
@@ -84,7 +87,8 @@ func TestDirs(t *testing.T) {
 	put := func(repoID int64) {
 		dirSyncs = nil
 		content := []byte("pack content")
-		require.NoError(t, s.Put(testhelper.Context(t), corestore.NewPackKey(repoID, sha256.Sum256(content)), bytes.NewReader(content)))
+		key := corestore.NewPackKey(repoID, sha256.Sum256(content))
+		require.NoError(t, s.Put(testhelper.Context(t), key, bytes.NewReader(content)))
 	}
 	repoDir := filepath.Join(dir, "repos", "1")
 	packsDir := filepath.Join(repoDir, "packs")
@@ -96,7 +100,8 @@ func TestDirs(t *testing.T) {
 	require.Equal(t, []string{packsDir}, dirSyncs)
 
 	put(2)
-	require.Equal(t, []string{filepath.Join(dir, "repos", "2", "packs"), filepath.Join(dir, "repos", "2"), filepath.Join(dir, "repos")}, dirSyncs)
+	repo2Dir := filepath.Join(dir, "repos", "2")
+	require.Equal(t, []string{filepath.Join(repo2Dir, "packs"), repo2Dir, filepath.Join(dir, "repos")}, dirSyncs)
 
 	// Moving the directory aside keeps its inode in use, so the new directory gets another one.
 	require.NoError(t, os.Rename(repoDir, filepath.Join(t.TempDir(), "old")))
@@ -104,7 +109,10 @@ func TestDirs(t *testing.T) {
 	require.Equal(t, []string{packsDir, repoDir, filepath.Join(dir, "repos")}, dirSyncs)
 }
 
-func TestDirErr(t *testing.T) {
+// TestPutSyncsAgainAfterAFailedDirectorySync checks that a Put whose fsync of an
+// ancestor failed remembers none of its directories: the next Put fsyncs them
+// all up to the root.
+func TestPutSyncsAgainAfterAFailedDirectorySync(t *testing.T) {
 	dir := t.TempDir()
 	reposDir := filepath.Join(dir, "repos")
 	fail := true
@@ -121,16 +129,21 @@ func TestDirErr(t *testing.T) {
 	})
 
 	content := []byte("pack content")
-	require.Error(t, s.Put(testhelper.Context(t), corestore.NewPackKey(1, sha256.Sum256(content)), bytes.NewReader(content)))
+	key := corestore.NewPackKey(1, sha256.Sum256(content))
+	require.Error(t, s.Put(testhelper.Context(t), key, bytes.NewReader(content)))
 
 	fail = false
 	dirSyncs = nil
-	require.NoError(t, s.Put(testhelper.Context(t), corestore.NewPackKey(1, sha256.Sum256(content)), bytes.NewReader(content)))
+	key = corestore.NewPackKey(1, sha256.Sum256(content))
+	require.NoError(t, s.Put(testhelper.Context(t), key, bytes.NewReader(content)))
 	repoDir := filepath.Join(reposDir, "1")
 	require.Equal(t, []string{filepath.Join(repoDir, "packs"), repoDir, reposDir, dir}, dirSyncs)
 }
 
-func TestConcur(t *testing.T) {
+// TestPutConcurrentWithTheFirstPutSyncsUpToTheRoot checks that a Put that runs
+// while the first Put of a repository is still fsyncing its directories does not
+// stop at one of them: it fsyncs its own way up to the root.
+func TestPutConcurrentWithTheFirstPutSyncsUpToTheRoot(t *testing.T) {
 	dir := t.TempDir()
 	reposDir := filepath.Join(dir, "repos")
 	reached, release := make(chan struct{}), make(chan struct{})

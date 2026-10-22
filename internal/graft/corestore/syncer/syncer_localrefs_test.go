@@ -114,7 +114,10 @@ func TestSyncerCatchUpMarksTheRepositoryDirty(t *testing.T) {
 	e.verifySynced(t, repo)
 }
 
-func TestDefer(t *testing.T) {
+// TestSyncerDefersTheWatermarkOfADirtyRepository checks that the syncer writes
+// the watermark without fsync while the repository is dirty, and with fsync once
+// the durable step removed the marker.
+func TestSyncerDefersTheWatermarkOfADirtyRepository(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, envOptions{})
@@ -156,7 +159,10 @@ func TestDefer(t *testing.T) {
 	require.Equal(t, []string{"watermark"}, points)
 }
 
-func TestTorn(t *testing.T) {
+// TestSyncerMovesAsideATornWatermarkAfterAKernelRestart checks that a dirty
+// repository whose watermark, written without fsync, is empty or torn after a
+// kernel restart is moved aside and hydrated again like any dirty repository.
+func TestSyncerMovesAsideATornWatermarkAfterAKernelRestart(t *testing.T) {
 	t.Parallel()
 
 	for name, torn := range map[string][]byte{"empty": nil, "garbage": []byte(`{"repo_id":`)} {
