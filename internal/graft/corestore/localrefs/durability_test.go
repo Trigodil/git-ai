@@ -405,6 +405,142 @@ func TestSettleReportsAFailedWriteAsUntrusted(t *testing.T) {
 	require.Equal(t, 0.0, testutil.ToFloat64(d.dirty))
 }
 
+func wmPath(repoPath string) string {
+	return filepath.Join(repoPath, "graft", "storage", "applied")
+}
+
+func TestDefers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("without the option", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.durability(t, "boot-a", 0)
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.False(t, d.CanDefer(f.path))
+	})
+
+	t.Run("while the repository is dirty", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
+
+		require.False(t, d.CanDefer(f.path), "a clean repository")
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.True(t, d.CanDefer(f.path))
+		require.NoError(t, d.Settle(f.path, false))
+		require.False(t, d.CanDefer(f.path), "the marker is gone")
+	})
+
+	t.Run("an untrusted repository", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		f.synced.fail(errors.New("input/output error"))
+		require.ErrorIs(t, d.Settle(f.path, false), ErrUntrusted)
+		require.False(t, d.CanDefer(f.path))
+	})
+
+	t.Run("a repository without a stack", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.durability(t, "boot-a", 0, WithWmark(wmPath))
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.NoError(t, os.Rename(filepath.Join(f.path, "reftable"), filepath.Join(t.TempDir(), "reftable")))
+		require.False(t, d.CanDefer(f.path))
+	})
+
+	t.Run("a process that does not own the storage", func(t *testing.T) {
+		t.Parallel()
+		f := setupDurability(t)
+		d := f.unowned(t, "boot-a", 0, WithWmark(wmPath))
+
+		require.False(t, d.CanDefer(f.path))
+	})
+
+	t.Run("a nil durability", func(t *testing.T) {
+		t.Parallel()
+		var d *Durability
+		require.False(t, d.CanDefer("/any"))
+	})
+}
+
+func TestSettle(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) (durabilityFixture, *Durability, string, *bool) {
+		f := setupDurability(t)
+		watermark := wmPath(f.path)
+		require.NoError(t, os.MkdirAll(filepath.Dir(watermark), 0o755))
+		require.NoError(t, os.WriteFile(watermark, []byte(`{"repo_id":1,"seq":2}`), 0o644))
+
+		var markerAtSync bool
+		var d *Durability
+		d = f.durability(t, "boot-a", 0, WithWmark(wmPath), WithSync(func(file *os.File) error {
+			if file.Name() == watermark {
+				_, err := os.Stat(f.markerPath(t, d))
+				markerAtSync = err == nil
+			}
+			return f.synced.sync(file)
+		}))
+		return f, d, watermark, &markerAtSync
+	}
+
+	t.Run("settle", func(t *testing.T) {
+		t.Parallel()
+		f, d, watermark, markerAtSync := setup(t)
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.NoError(t, d.Settle(f.path, false))
+
+		recorded := f.synced.recorded()
+		require.Contains(t, recorded, watermark)
+		require.Contains(t, recorded, filepath.Dir(watermark))
+		require.True(t, *markerAtSync, "the watermark is durable before the marker goes")
+		require.NoFileExists(t, f.markerPath(t, d))
+	})
+
+	t.Run("forget", func(t *testing.T) {
+		t.Parallel()
+		f, d, watermark, markerAtSync := setup(t)
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.NoError(t, d.Forget(f.ctx, f.repo, f.path))
+
+		require.Contains(t, f.synced.recorded(), watermark)
+		require.True(t, *markerAtSync)
+		require.NoFileExists(t, f.markerPath(t, d))
+	})
+
+	t.Run("a failed fsync of the watermark", func(t *testing.T) {
+		t.Parallel()
+		f, d, _, _ := setup(t)
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		f.synced.mu.Lock()
+		f.synced.failOnly = filepath.Join("graft", "storage")
+		f.synced.mu.Unlock()
+		f.synced.fail(errors.New("input/output error"))
+
+		require.ErrorIs(t, d.Settle(f.path, false), ErrUntrusted)
+		require.FileExists(t, f.markerPath(t, d))
+	})
+
+	t.Run("no watermark", func(t *testing.T) {
+		t.Parallel()
+		f, d, watermark, _ := setup(t)
+		require.NoError(t, os.RemoveAll(filepath.Dir(watermark)))
+
+		require.NoError(t, d.MarkDirty(f.ctx, f.repo, f.path))
+		require.NoError(t, d.Settle(f.path, false))
+		require.NoFileExists(t, f.markerPath(t, d))
+	})
+}
+
 // TestUntrustedSurvivesAProcessRestart verifies that the untrusted state is in
 // the marker: a restart of the process in the same boot, whose fsyncs then
 // succeed, finds the repository untrusted and never settles it.

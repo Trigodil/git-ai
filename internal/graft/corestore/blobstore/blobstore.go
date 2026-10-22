@@ -36,8 +36,9 @@
 // anything, and a changeset row in the database (synchronous=FULL) could
 // outlive a pack whose data never reached the disk. For file buckets Put fsyncs
 // the content before the link publishes it, and fsyncs the directories that
-// hold the new entry (up to the bucket root) after it. The mem and remote
-// drivers commit their objects durably themselves.
+// hold the new entry after it, up to the first one whose whole chain is durable.
+// Bucket directories are never removed while a server uses the bucket: a recreated one could reuse an inode.
+// The mem and remote drivers commit their objects durably themselves.
 //
 // Listing. List reports objects only. fileblob also reports a writer's
 // temporary file (<key>.<nanos>.tmp, in the key's directory because file
@@ -67,6 +68,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/feder-cr/git-ai/internal/graft/corestore"
 	"gocloud.dev/blob"
@@ -85,6 +87,8 @@ type Store struct {
 	// root is the cleaned directory of a file bucket and empty for any other
 	// driver. Put makes the writes of a file bucket durable from it.
 	root string
+	// Directories whose entry in their parent was made durable, by path.
+	durableDirs sync.Map
 }
 
 var _ corestore.BlobStore = (*Store)(nil)
@@ -316,19 +320,33 @@ func syncFile(f *os.File) error {
 	return f.Sync()
 }
 
-// syncDirs fsyncs dir and, when dir is inside the bucket root, each of its
-// ancestors up to the root: the directories that the driver may have created,
-// and the entry that the link created.
+// Fsyncs dir and its ancestors inside the bucket root, up to the first one whose whole chain an
+// earlier call made durable. The walk caches its directories only once it reached that point.
 func (s *Store) syncDirs(dir string) error {
 	inside := dir == s.root || strings.HasPrefix(dir, s.root+string(filepath.Separator))
+	visited := map[string]os.FileInfo{}
 	for d := dir; ; d = filepath.Dir(d) {
 		if err := syncDir(d); err != nil {
 			return err
 		}
 		if !inside || d == s.root {
-			return nil
+			break
 		}
+
+		info, err := os.Stat(d)
+		if err != nil {
+			return fmt.Errorf("stat directory: %w", err)
+		}
+		if known, ok := s.durableDirs.Load(d); ok && os.SameFile(known.(os.FileInfo), info) {
+			break
+		}
+		visited[d] = info
 	}
+
+	for d, info := range visited {
+		s.durableDirs.Store(d, info)
+	}
+	return nil
 }
 
 // syncDir fsyncs a directory so that the entries created in it are durable.

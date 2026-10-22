@@ -536,6 +536,25 @@ func TestWatermarkRoundTrip(t *testing.T) {
 	require.Equal(t, "applied", entries[0].Name())
 }
 
+func TestNoSync(t *testing.T) {
+	t.Parallel()
+
+	repoPath := t.TempDir()
+	// Without its directory the watermark is written as WriteWatermark does.
+	require.NoError(t, gitops.WriteLazy(repoPath, corestore.Watermark{RepoID: 7, Seq: 1}))
+	require.FileExists(t, gitops.WatermarkPath(repoPath))
+
+	require.NoError(t, gitops.WriteLazy(repoPath, corestore.Watermark{RepoID: 7, Seq: 2}))
+	w, ok, err := gitops.ReadWatermark(repoPath)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, corestore.Watermark{RepoID: 7, Seq: 2}, w)
+
+	entries, err := os.ReadDir(filepath.Dir(gitops.WatermarkPath(repoPath)))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+}
+
 func TestWatermarkCorrupt(t *testing.T) {
 	t.Parallel()
 
