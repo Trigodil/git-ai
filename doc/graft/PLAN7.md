@@ -714,10 +714,12 @@ repository-wide lock.
      * It fsyncs the tables not yet fsynced, `tables.list` and the directory.
      * When the repository has been idle for a second, or the process stops,
        and nothing is live, the step clears the marker:
+       * It fsyncs the watermark and its directory (see *Watermark* below),
+         before git's lock, so that this fsync does not hold the transactions.
        * It takes git's lock without waiting. The lock is created by linking a
          temporary file that holds a tag and a random nonce.
-       * It fsyncs what was written since, then the watermark and its directory,
-         marks the state clean, and releases the lock. The release removes the lock only if it is still the same
+       * It fsyncs what was written since, marks the state clean, and releases
+         the lock. The release removes the lock only if it is still the same
          file with the same nonce: an inode is reused as soon as it is freed, so
          a lock that someone else replaced is never removed.
        * Last, it removes the marker, under a per-repository file lock that
@@ -728,15 +730,19 @@ repository-wide lock.
        servers stopped, so a clean reboot does not rehydrate them.
    * *Watermark.* While a repository of the owner is dirty and has a reftable
      stack, the syncer writes its watermark (`graft/storage/applied`) atomically
-     without fsync (`CanDefer`).
+     without fsync (`DefersWatermark`).
      * After a kernel restart a dirty cache is moved aside whatever its watermark
        holds, and after a process restart the page cache kept the write. An
        advance only changes the sequence; the repository ID was written with
        fsync by the hydration, so a lost or torn advance leaves the recovery's
        decision as it was.
-     * The step that clears the marker under git's lock, and `Forget` of a
-       repository kept in place, fsync the watermark and its directory first. A
+     * Every removal of a dirty marker fsyncs the watermark and its directory
+       first, if there is one: the step that clears it (before it takes git's
+       lock), the step of a repository whose stack is gone, and `Forget`. A
        failed fsync makes the repository untrusted, as for the stack.
+     * The watermark cannot change between that fsync and the removal: the
+       syncer writes it only under its repository lock, which the step and
+       `Forget` hold.
      * Hydration, import and the gate write it with fsync, as does a write
        whose directory is missing.
    * *Write failure.* Only a failed fsync means the kernel may have dropped
