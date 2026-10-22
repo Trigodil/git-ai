@@ -2472,6 +2472,56 @@ approved after the first $1.0. One deviation of the scripts (Amendment 1: the ke
 **Reading.** (1) The results of the campaign are unchanged and are what they were: Go met and replicated, Python not met with v1, TypeScript not run. (2) The objective rule (the project's own tests or build) is the part of v2b that works without doubt (21 of 21 real
 Go errors). (3) A better label than v1 for the Python artifacts would have to be reference-free (judge the answer as a merge of the two sides), which is arm B of 15.12, not a refinement of the reference-based arm; it was not designed or measured here.
 
+### 15.23 The Python answers judged against the three sides by Claude (an AI reference; free, with a calibration added afterwards)
+
+**The answer.** Federico asked the PM to judge the Python answers itself ("Giudica tu"), because the references of v1 (the developer's file and three LLM judges that see only the diff) are unreliable on Python (15.18: 18 of the 25 wrong-but-PASS labels
+were artifacts; 15.22: a better label of the same family was not validated). The reference became the judgement of independent Claude Opus reviewers (agents of the PM's session) who see base, ours, theirs, the regions, and every difference outside them, and
+who decide whether the answer is **a correct merge of the two sides**, not whether it equals the developer's file. On the 331 G1-landed pyfresh answers this label gives **7.3% wrong with G1 alone (upper bound 10.6%), 3.2% with the tests (T, upper 7.2%) and
+5.9% with G1+SEM (upper 9.2%), and every gate meets the bar, with and without sympy** (v1: 17.5% / 15.9% / 15.3%, none met). It is an AI reference, not a human ground truth; it was calibrated on Go after its Python figures were known; and the Python set is not blind to it.
+
+**Method** (`run/pmjudge-pm/PROTOCOL-PMJUDGE.txt`, sha256 `b99630b8e01c`; all in `c1-work/run/pmjudge-pm/`, copied from the PM's scratch directory, `score.py` re-run from there with identical numbers):
+* *Population:* the 146 pyfresh answers that G1 lands and that differ from the developer's file (185 of the 331 are identical and are correct, as in every label). 19 are equal to the developer's file ignoring blank lines and whitespace: correct without review. 9 fail the project's tests or build
+  where the developer's file passes (the objective rule of 15.22): wrong without review. **118** are judged.
+* *Reviewers:* four independent Claude Opus agents, one per batch of the 118 (split by sorted id), each given only the rubric and the case files of 15.22 (`prompts-v2b`), which carry no v1 verdict, no test status and no SEM class: blind per case. Each returns CORRECT, WRONG (with the
+  rule 1-5) or UNCLEAR.
+* *Rubric:* WRONG if the answer loses a change one side made, keeps what a side deliberately removed, introduces a bug, fails to adapt code that the merge requires to adapt (a rename on one side and a use next to the conflict, which the developer adapted), or, in a test file, drops or weakens
+  an assertion a side added. CORRECT if it keeps both sides' intended changes even when it differs from the developer (the developer dropped or reverted a side, the developer's file is broken, extra work outside the conflict). UNCLEAR only when the intent cannot be determined; **UNCLEAR counts as wrong**.
+* *Double check:* a second independent reviewer re-judged every 5th id (23 answers) blind to the first verdict: 22 of 23 agree (95.7%, kappa 0.78); the one disagreement counts as wrong.
+* *Verdicts:* of the 118: 103 CORRECT, 14 WRONG (rules 3: 5, 2: 3, 4: 3, 5: 2, 1: 1), 1 UNCLEAR.
+
+**Calibration** (`PROTOCOL-PMJUDGE-CALIB.txt`, sha256 `1b0cc7373ed7`; **declared post-hoc**: it was added after the pyfresh verdicts showed that the label meets every gate, to check that the label is not lenient; the criteria were written before its verdicts). 36 Go cases shuffled with
+seed 20261023 (`calib-set.json` sha256 `11cb4568565279`): 11 real errors and 6 artifacts of the PM's goerr audit that need a judge (the other 10 real errors are caught by the objective rule), and 19 right answers (the v2b draw, Go only), judged blind by a new reviewer with the same rubric.
+Criteria: at least 9 of the 11 real errors rejected and at least 17 of the 19 right answers accepted. **Result: 10 of 11 real errors rejected, 17 of 19 right answers accepted, 6 of 6 artifacts accepted: calibrated** (with the objective rule, 20 of the 21 real Go errors are caught; the one missed is
+`go-heldout|19f8e16aaa5f9831`). The two right answers rejected (`go-fresh|71702234694f2ffc`, `go-fresh|7389d9b9a734c0c4`) are v1-accepted: either could be a real error that v1 missed (the second is a constant left untyped where the other side typed every constant; judges 1 and 3 of v2b disagreed with judge 2 on it).
+
+**The result** (wrong = not a correct merge by the label; Wilson upper bound in parentheses; N of at least 54 and an upper bound of 20% or less; v1 beside):
+
+| gate | N | v1 wrong | **PM label wrong** | rule |
+|---|---:|---|---|---|
+| G1 (no tests) | 331 | 58 = 17.5% (22.0) | **24 = 7.3% (10.6)** | met |
+| G1, without sympy | 173 | 30 = 17.3% (23.7) | **16 = 9.2% (14.5)** | met |
+| G1+SEM | 288 | 44 = 15.3% (19.9) | **17 = 5.9% (9.2)** | met |
+| G1+SEM, without sympy | 146 | 20 = 13.7% (20.2) | **10 = 6.8% (12.1)** | met |
+| T (tests PASS) | 157 | 25 = 15.9% (22.5) | **5 = 3.2% (7.2)** | met |
+| T, without sympy | 64 | 8 = 12.5% (22.8) | **3 = 4.7% (12.9)** | met |
+| T+SEM (exploratory) | 142 | 19 = 13.4% (20.0) | 3 = 2.1% (6.0) | met |
+| T+SEM, without sympy (exploratory) | 59 | 6 = 10.2% (20.5) | 2 = 3.4% (11.5) | met |
+
+Between the labels (the 331): 272 right under both, 23 wrong under both, **35 wrong under v1 and right under the PM label**, 1 right under v1 and wrong under the PM label. By repository the PM label finds Pillow the weakest (10 of 67 wrong) and sympy 8 of 158 (v1: 28). Of the 25 audited wrong-but-PASS cases (in-sample: the same reader family),
+the PM label calls 17 of the 18 artifacts right and 3 of the 4 real or minor ones wrong, as the audit did.
+
+**Caveats, all of them real.**
+1. *An AI reference, not a human one.* The reviewers are Claude agents, the same family as the audit that found the v1 artifacts and as the author of this document; their errors can be correlated with the audit's. The label has not been checked by a person.
+2. *The Python set is not blind to it.* pyfresh was seen with v1 (every aggregate), the 25 wrong-but-PASS cases were audited by the same session, and the rubric was written after both. The reviewers are blind per case; the design is not blind in aggregate.
+3. *The calibration was added after the result* (declared above), on Go only (36 cases, 11 real errors): there is no calibration on Python, where the only evidence is the in-sample audit. With 11 real errors the miss rate of the label has a wide interval (1 of 11).
+4. *A lenient reference cannot be excluded by 36 cases.* The calibration criteria were met (10 of 11, 17 of 19), but two of the "right" answers it rejected could be real errors that v1 accepted, which would argue for the label, not against it; and the one real error it accepted is a case of a timer placed before a call.
+5. *UNCLEAR is wrong, the disagreement is wrong, the objective rule is wrong*: every uncertainty is resolved against the answer; the figures are not lenient by construction in those three places.
+6. *Cost:* no API spend. The earlier label work (15.22) cost $0.62.
+
+**Reading.** On Python the reference chosen decides the conclusion: with v1 no gate reaches the 20% bar (G1 at 17.5%, upper bound 22%), with a reference that judges the answer as a merge of the two sides, G1 alone is at 7.3% and every gate with and without sympy is under the bar, even without the tests. The tests add little
+under either label (G1 7.3% against T 3.2% on the PM label; 17.5% against 15.9% on v1). A statement the evidence supports: *if a correct merge is what matters, Python answers that two writers from different vendors produce identically and that pass py_compile and pyflakes are wrong in about 7% of cases (upper bound 10.6%), as measured by an AI reviewer with a written rubric*;
+it does not support the same sentence for a human reviewer, and it does not replace a human sample, which would be the next step if the claim is to be quoted.
+
 ### Appendix A: the measurement log of section 15
 
 What was run, when, on what, at what cost. Data, scripts and reports are in `c1-work/` (outside the repository:
@@ -2505,6 +2555,7 @@ read from the key before and after each run and agrees, except where stated.
 | 21 | SEM and BIND of 15.19 applied once to the 331 G1-landed Python files | PROTOCOL-PYSEM (c99a36857fd0) | scripts/pysem.py, pysem_eval.py outside the repository | $0 |
 | 22 | the TypeScript preparation of 15.20: the harness, the recipes on 3 merges per repository, the mutation check, the hashed protocol; 1,028 more cases mined; **never applied** (stopped) | manifest-tsfresh (549), PROTOCOL-TS (dcf8da2f22e2) | scripts/test_gate_ts.py, tsrun.sh, ts_ids.py, ts_report.py outside the repository | $0 |
 | 22 | label v2b of 15.22: validation on the PM's audit sets (27 Go held-out wrong, 40 right answers drawn, 56 judge calls) with the objective rule, judges 1 and 2 and judge 3 on disagreements; diagnostic call; re-run of 8 judge-3 calls (Amendment 2); **not validated, application not run** | PROTOCOL-LABEL2 (62b059bcc29b) and Amendments 1, 2, 2b | scripts/v2core.py, v2_judge.py, v2run.sh, v2_report.py outside the repository | $0.0087 + $0.1776 + $0.4201 + $0.0132 = $0.620 booked |
+| 22 | the PM label of 15.23: 118 pyfresh answers judged by four blind Claude Opus reviewers with a written rubric, a 20% second review (22 of 23 agree), a post-hoc calibration on 36 Go cases (10 of 11 real errors rejected, 17 of 19 right accepted); gates scored by `score.py` | PROTOCOL-PMJUDGE (b99630b8e01c), PROTOCOL-PMJUDGE-CALIB (1b0cc7373ed7) | run/pmjudge-pm/ (score.py ad04280ef7), outside the repository | $0 |
 | 20 | the agree_with gate through fake providers and the real graft-resolve with two fake command models | tests only | 3cc898c | $0 |
 
 **Why a screened model is skipped.** The screening is a smoke check of five cases (a go, a java, a python, a
